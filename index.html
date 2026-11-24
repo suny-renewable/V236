@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V236-15.0 MW 해상풍력 단지 v3</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.33/esri/themes/light/main.css">
+<script src="https://js.arcgis.com/4.33/"></script>
+<style>
+  html, body, #viewDiv { margin: 0; width: 100%; height: 100%; }
+  #panel { position: absolute; top: 12px; right: 12px; z-index: 10; width: 270px;
+    background: rgba(255,255,255,.95); border-radius: 6px; padding: 12px 14px;
+    font: 14px/1.4 system-ui, "Malgun Gothic", sans-serif; box-shadow: 0 2px 10px #0003; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  label { display: block; margin: 8px 0 2px; font-weight: 600; }
+  .v { float: right; font-weight: 400; }
+  input[type=range] { width: 100%; }
+  button { margin-top: 10px; width: 100%; height: 36px; border: 0; border-radius: 4px;
+    background: #0b5394; color: #fff; font: 600 14px system-ui, "Malgun Gothic", sans-serif; cursor: pointer; }
+  small { color: #555; display: block; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="viewDiv"></div>
+<div id="panel">
+  <h1>Vestas V236-15.0 MW 단지</h1>
+  <label>로터 속도 <span class="v" id="rpmV"></span></label>
+  <input id="rpm" type="range" min="0" max="10" step="0.5" value="7">
+  <label>해저면 투명도 <span class="v" id="gopV"></span></label>
+  <input id="gop" type="range" min="0" max="1" step="0.05" value="0.6">
+  <button id="play">일시정지</button>
+  <small id="info">모델 불러오는 중…</small>
+</div>
+<script>
+// =====================================================================
+//  터빈 목록 — [이름, 경도, 위도, 로터 방향°]  (방향 = 바람이 오는 쪽, 북=0°, 시계방향)
+// =====================================================================
+const TURBINES = [
+  ["T01", 127.510691, 34.519043, 335],
+  ["T02", 127.498092, 34.529679, 335],
+  ["T03", 127.532352, 34.515951, 335],
+  ["T04", 127.519753, 34.526587, 335],
+  ["T05", 127.507152, 34.537221, 335],
+  ["T06", 127.494549, 34.547855, 335],
+  ["T07", 127.541417, 34.523494, 335],
+  ["T08", 127.528817, 34.534129, 335],
+  ["T09", 127.516215, 34.544764, 335],
+  ["T10", 127.50361, 34.555398, 335],
+  ["T11", 127.550484, 34.531036, 335],
+  ["T12", 127.537883, 34.541671, 335],
+  ["T13", 127.52528, 34.552306, 335],
+  ["T14", 127.512674, 34.56294, 335],
+  ["T15", 127.559553, 34.538577, 335],
+  ["T16", 127.54695, 34.549212, 335],
+  ["T17", 127.534346, 34.559847, 335],
+  ["T18", 127.568623, 34.546118, 335],
+  ["T19", 127.566021, 34.471979, 335],
+  ["T20", 127.553261, 34.482476, 335],
+  ["T21", 127.540499, 34.492974, 335],
+  ["T22", 127.535391, 34.467207, 335],
+  ["T23", 127.522632, 34.477705, 335],
+  ["T24", 127.58772, 34.469115, 335],
+  ["T25", 127.57496, 34.479613, 335],
+  ["T26", 127.562199, 34.49011, 335],
+  ["T27", 127.549435, 34.500607, 335],
+  ["T28", 127.609422, 34.466252, 335],
+  ["T29", 127.596662, 34.476749, 335],
+  ["T30", 127.583899, 34.487245, 335],
+  ["T31", 127.571134, 34.49774, 335],
+  ["T32", 127.558366, 34.508234, 335],
+  ["T33", 127.557082, 34.464341, 335],
+  ["T34", 127.544323, 34.474839, 335],
+  ["T35", 127.531563, 34.485336, 335],
+  ["T36", 127.618367, 34.473885, 335],
+  ["T37", 127.605605, 34.484382, 335],
+  ["T38", 127.592841, 34.494878, 335],
+  ["T39", 127.580075, 34.505373, 335],
+  ["T40", 127.567306, 34.515867, 335],
+  ["T41", 127.640074, 34.47102, 335],
+  ["T42", 127.627314, 34.481517, 335],
+  ["T43", 127.614551, 34.492014, 335],
+  ["T44", 127.601785, 34.50251, 335],
+  ["T45", 127.589018, 34.513005, 335],
+  ["T46", 127.576248, 34.5235, 335],
+  ["T47", 127.649023, 34.478651, 335],
+  ["T48", 127.636262, 34.489149, 335],
+  ["T49", 127.623498, 34.499646, 335],
+  ["T50", 127.610731, 34.510142, 335],
+  ["T51", 127.597963, 34.520637, 335],
+  ["T52", 127.670735, 34.475784, 335],
+  ["T53", 127.657974, 34.486282, 335],
+  ["T54", 127.645212, 34.49678, 335],
+  ["T55", 127.632446, 34.507277, 335],
+  ["T56", 127.679689, 34.483415, 335],
+  ["T57", 127.666927, 34.493913, 335],
+  ["T58", 127.654163, 34.50441, 335],
+  ["T59", 127.675881, 34.501543, 335]
+];
+
+const CONFIG = {
+  staticUrl: "turbine_static.glb",   // 타워 + 나셀 + 자켓
+  rotorUrl:  "turbine_rotor.glb",    // 로터 (원점 = 허브 중심)
+  hubForward: 12.4114,               // 타워 중심 → 허브 중심 수평 거리 (m)
+  hubZ:       144.973,               // 허브 높이 (m, 해수면 기준)
+  shaftTilt:  6,
+  spinSign:  -1,                     // 반대로 돌면 1
+  frames:    12                      // 120°(블레이드 3개 대칭)를 12단계(10°)로 나눔
+};
+
+require(["esri/Map", "esri/views/SceneView", "esri/layers/GraphicsLayer", "esri/Graphic",
+         "esri/core/reactiveUtils"],
+(Map, SceneView, GraphicsLayer, Graphic, reactiveUtils) => {
+  const map = new Map({ basemap: "satellite", ground: "world-elevation" });
+  const view = new SceneView({ container: "viewDiv", map, qualityProfile: "medium",
+    environment: { lighting: { type: "sun", directShadowsEnabled: false } } });
+  const $ = id => document.getElementById(id);
+  const sym = (href, o) => ({ type: "point-3d",
+    symbolLayers: [{ type: "object", resource: { href }, anchor: "origin", ...o }] });
+  const elev = { mode: "absolute-height" };
+
+  const turbines = TURBINES.map(t => ({ name: t[0], lon: t[1], lat: t[2], heading: t[3] }));
+  const hub = t => {
+    const h = t.heading * Math.PI / 180;
+    return { type: "point", z: CONFIG.hubZ,
+      longitude: t.lon + CONFIG.hubForward * Math.sin(h) / (111320 * Math.cos(t.lat * Math.PI / 180)),
+      latitude:  t.lat + CONFIG.hubForward * Math.cos(h) / 110574 };
+  };
+
+  // 고정부 (타워·나셀·자켓)
+  const staticLayer = new GraphicsLayer({ title: "터빈", elevationInfo: elev });
+  staticLayer.addMany(turbines.map(t => new Graphic({
+    geometry: { type: "point", longitude: t.lon, latitude: t.lat, z: 0 },
+    symbol: sym(CONFIG.staticUrl, { heading: t.heading }),
+    attributes: { 이름: t.name, 경도: t.lon, 위도: t.lat, 방향: t.heading },
+    popupTemplate: { title: "{이름}", content: "경도 {경도}<br>위도 {위도}<br>로터 방향 {방향}°" }
+  })));
+  map.add(staticLayer);
+
+  // 로터: 각도별 레이어 12개를 미리 만들고, 보이는 레이어만 바꿔서 회전
+  const step = 120 / CONFIG.frames;
+  const frameLayers = [];
+  for (let k = 0; k < CONFIG.frames; k++) {
+    const layer = new GraphicsLayer({ elevationInfo: elev, listMode: "hide" });
+    layer.addMany(turbines.map((t, i) => new Graphic({ geometry: hub(t),
+      symbol: sym(CONFIG.rotorUrl, { heading: t.heading, tilt: CONFIG.shaftTilt,
+        roll: CONFIG.spinSign * (k * step + (i * 37) % 120) }) })));
+    frameLayers.push(layer);
+  }
+  map.addMany(frameLayers);
+
+  let rpm = 7, playing = true, angle = 0, shown = -1, last = performance.now(), ready = false;
+  function show(k) {
+    if (k === shown) return;
+    frameLayers[k].visible = true;                 // 새 프레임을 먼저 켜고
+    if (shown >= 0) frameLayers[shown].visible = false;   // 이전 프레임을 끔
+    shown = k;
+  }
+  function tick(now) {
+    const dt = (now - last) / 1000; last = now;
+    if (ready && playing) {
+      angle = (angle + rpm * 6 * dt) % 120;
+      show(Math.floor(angle / step) % CONFIG.frames);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  view.when(async () => {
+    map.ground.navigationConstraint = { type: "none" };
+    map.ground.opacity = 0.6;
+    view.goTo({ target: staticLayer.graphics.toArray(), tilt: 72 }).catch(() => {});
+    // 모든 프레임을 한 번 불러온 뒤 회전 시작
+    await reactiveUtils.whenOnce(() => !view.updating);
+    frameLayers.forEach((l, k) => l.visible = (k === 0));
+    shown = 0; ready = true;
+    $("info").textContent = `터빈 ${turbines.length}기 · 터빈을 클릭하면 정보 표시`;
+    requestAnimationFrame(tick);
+  });
+
+  const upd = () => { $("rpmV").textContent = rpm.toFixed(1) + " rpm";
+                      $("gopV").textContent = Math.round($("gop").value * 100) + "%"; };
+  $("rpm").oninput = () => { rpm = +$("rpm").value; upd(); };
+  $("gop").oninput = () => { map.ground.opacity = +$("gop").value; upd(); };
+  $("play").onclick = () => { playing = !playing; $("play").textContent = playing ? "일시정지" : "재생"; };
+  upd();
+});
+</script>
+</body>
+</html>
